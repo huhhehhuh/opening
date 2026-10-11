@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <!-- 모바일 최적화를 위한 뷰포트 설정 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Opening Lab - 체스 오프닝 학습기</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- jQuery (chessboard.js 요구사항) -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    
+    <!-- Chessboard.js CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    
+    <!-- Chess.js (체스 규칙 및 PGN 엔진) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    
+    <!-- Tone.js (효과음 합성) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- React, ReactDOM, Babel for Single File Component Architecture -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- 커스텀 스타일 (Chess.com 다크 테마) -->
+    <style>
+        :root {
+            --bg-main: #312e2b;
+            --bg-panel: #262421;
+            --bg-panel-hover: #3c3a38;
+            --text-main: rgba(255, 255, 255, 0.72);
+            --text-light: #ffffff;
+            --accent-green: #81b64c;
+            --accent-green-hover: #a3d160;
+            --board-light: #ebecd0;
+            --board-dark: #739552;
+            --highlight-move: rgba(255, 255, 51, 0.5);
+            --danger: #fa4b4b;
+        }
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        /* 스크롤바 커스텀 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #777; }
+
+        /* Chessboard.js 오버라이드 */
+        .white-1e1d7 { background-color: var(--board-light) !important; color: var(--board-dark) !important; }
+        .black-3c85d { background-color: var(--board-dark) !important; color: var(--board-light) !important; }
+        .highlight1-32417, .highlight2-9c5d2 { background-color: var(--highlight-move) !important; }
+        .selected-square { box-shadow: inset 0 0 0 4px rgba(129,182,76,.9) !important; }
+        .legal-target { position: relative; }
+        .legal-target::after { content: ''; position: absolute; inset: 36%; border-radius: 50%; background: rgba(38,36,33,.48); pointer-events: none; }
+        .legal-capture::after { inset: 7%; border: 4px solid rgba(38,36,33,.48); background: transparent; }
+        
+        /* 터치 기기에서 보드 드래그 시 스크롤 방지 */
+        #board-container { touch-action: none; }
+
+        /* Tailwind 기본 이미지 스타일과 Chessboard.js 충돌 해결 (기물 거대화 현상 방지) */
+        #board-container img {
+            max-width: none !important;
+            margin: 0 !important;
+        }
+        button:focus-visible, [role="button"]:focus-visible { outline: 3px solid #a3d160; outline-offset: 2px; }
+        @media (max-width: 640px) {
+            #board-container { border-width: 2px; }
+        }
+
+        .btn-green {
+            background-color: var(--accent-green);
+            color: white;
+            font-weight: 700;
+            box-shadow: 0 3px 0 #537c2c;
+            transition: all 0.1s;
+        }
+        .btn-green:hover { background-color: var(--accent-green-hover); }
+        .btn-green:active { box-shadow: none; transform: translateY(3px); }
+        .btn-green:disabled { background-color: #555; box-shadow: 0 3px 0 #333; color: #888; cursor: not-allowed; }
+
+        .btn-dark {
+            background-color: var(--bg-panel-hover);
+            color: white;
+            transition: background-color 0.1s;
+        }
+        .btn-dark:hover { background-color: #4c4946; }
+        .btn-dark:disabled { opacity: 0.5; cursor: not-allowed; }
+        .route-tile { background: linear-gradient(145deg, #3f5142, #29352d); border: 2px solid #607164; box-shadow: 0 4px 0 #18231b; transition: transform .12s, background .12s; }
+        .route-tile:hover { background: linear-gradient(145deg, #59725b, #35493a); transform: translateY(-2px); }
+        .route-tile:active { transform: translateY(3px); box-shadow: none; }
+        .route-tile--black { background: linear-gradient(145deg, #3c3a38, #242321); border-color: #68645e; box-shadow: 0 4px 0 #151412; }
+
+        /* 상태 뱃지 애니메이션 */
+        @keyframes pop {
+            0% { transform: scale(0.9); opacity: 0; }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-pop { animation: pop 0.3s ease-out forwards; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+        // --- 데이터베이스 (오프닝 및 레슨 콘텐츠) ---
+        const OPENING_DATA = [
+            { id: 'op_ita', name: '이탈리안 게임', enName: 'Italian Game', level: '600-1000', tags: ['e4', '중앙장악', '초심자'], desc: '초심자에게 가장 완벽한 첫 오프닝입니다. 백은 중앙을 확보하고 비숍을 전개해 공격을 준비하고, 흑은 이에 대항해 똑같이 중앙과 비숍을 전개합니다.' },
+            { id: 'op_ruy', name: '루이 로페즈', enName: 'Ruy Lopez', level: '1000-1400', tags: ['e4', '압박', '이론'], desc: '체스에서 가장 유명하고 이론이 깊은 오프닝. 비숍을 b5로 전개해 흑의 나이트를 간접 압박합니다.' },
+            { id: 'op_qg',  name: '퀸즈 갬빗', enName: "Queen's Gambit", level: '1000-1400', tags: ['d4', '주도권', '측면폰'], desc: '측면 폰을 희생하는 척하며 중앙을 차지하려는 전략적인 오프닝입니다.' },
+            { id: 'op_lon', name: '런던 시스템', enName: 'London System', level: '600-1000', tags: ['d4', '견고함', '시스템'], desc: '상대의 응수에 크게 구애받지 않고 자신의 기물을 안전하고 단단하게 전개할 수 있는 강력한 시스템입니다.' },
+            { id: 'op_caro', name: '카로칸 디펜스', enName: 'Caro-Kann Defense', level: '1000-1400', tags: ['e4', 'c6', '단단함', '엔드게임'], desc: '흑이 견고한 폰 구조를 만들어 백의 공격을 막아내고 후반전을 도모하는 강력한 수비 무기입니다.' },
+            { id: 'op_sic', name: '시칠리안 디펜스', enName: 'Sicilian Defense', level: '1400-1800', tags: ['e4', 'c5', '반격', '불균형'], desc: '1.e4에 대한 인기 있는 반격으로 비대칭 구조를 만듭니다.' },
+            { id: 'op_fre', name: '프렌치 디펜스', enName: 'French Defense', level: '1000-1400', tags: ['e4', 'e6', '카운터', '닫힌진영'], desc: 'e6 후 d5로 쳐서 닫힌 구조를 만들고 전략적인 싸움을 벌이는 방어입니다.' },
+            { id: 'op_kid', name: '킹스 인디언 디펜스', enName: 'King\'s Indian Defense', level: '1400-1800', tags: ['d4', 'Nf6', '역습', '공격'], desc: '중앙을 잠시 내어준 뒤 역습으로 백의 킹사이드를 노리는 다이내믹한 오프닝입니다.' },
+            { id: 'op_e5', name: '1...e5 기본 대응', enName: 'Open Game Defense', level: '600-1000', tags: ['e4', 'e5', '중앙장악', '기본'], desc: '1.e4에 가장 직접적으로 맞서며 중앙을 공유하는 기본 대응입니다.' },
+            { id: 'op_scotch', name: '스카치 게임', enName: 'Scotch Game', level: '600-1000', tags: ['e4', 'd4', '중앙교환'], desc: '빠른 d4로 중앙을 열어 기물을 자연스럽게 전개하는 백의 선택지입니다.' },
+            { id: 'op_kga', name: '킹스 갬빗', enName: "King's Gambit", level: '1000-1400', tags: ['e4', 'f4', '공격'], desc: 'f폰을 내주고 빠른 전개와 주도권을 추구하는 날카로운 오프닝입니다.' },
+            { id: 'op_four_knights', name: '포 나이츠 게임', enName: 'Four Knights Game', level: '600-1000', tags: ['e4', '전개', '기본'], desc: '양측이 나이트를 빠르게 전개하며 기본 원칙을 연습하기 좋은 오프닝입니다.' },
+            { id: 'op_vienna', name: '비엔나 게임', enName: 'Vienna Game', level: '600-1000', tags: ['e4', 'Nc3', '중앙'], desc: 'Nc3로 e4를 지원하고 중앙 전진을 준비하는 백의 자연스러운 선택지입니다.' },
+            { id: 'op_ponziani', name: '폰치아니 오프닝', enName: 'Ponziani Opening', level: '600-1000', tags: ['e4', 'c3', '중앙'], desc: 'c3로 d4 전진을 준비해 중앙을 넓히려는 오프닝입니다.' },
+            { id: 'op_bishop', name: '비숍 오프닝', enName: "Bishop's Opening", level: '600-1000', tags: ['e4', 'Bc4', '전개'], desc: '비숍을 빠르게 전개해 f7을 바라보는 고전적인 오프닝입니다.' },
+            { id: 'op_petrov', name: '페트로프 디펜스', enName: 'Petrov Defense', level: '1000-1400', tags: ['e4', 'Nf6', '견고함'], desc: '1.e4에 Nf6로 맞서며 중앙 폰을 즉시 압박하는 견고한 대응입니다.' },
+            { id: 'op_philidor', name: '필리도어 디펜스', enName: 'Philidor Defense', level: '600-1000', tags: ['e4', 'd6', '견고함'], desc: 'e5를 지키고 단단한 구조를 만든 뒤 전개하는 수비입니다.' },
+            { id: 'op_scandi', name: '스칸디나비안 디펜스', enName: 'Scandinavian Defense', level: '600-1000', tags: ['e4', 'd5', '중앙교환'], desc: '첫 수부터 d5로 e4에 도전하며 중앙을 빠르게 교환하려는 수비입니다.' },
+            { id: 'op_pirc', name: '피르츠 디펜스', enName: 'Pirc Defense', level: '1000-1400', tags: ['e4', 'd6', '피앙케토'], desc: '중앙을 유연하게 두고 비숍 피앙케토와 반격을 준비하는 수비입니다.' },
+            { id: 'op_modern', name: '모던 디펜스', enName: 'Modern Defense', level: '1000-1400', tags: ['e4', 'g6', '피앙케토'], desc: 'g6와 Bg7로 긴 대각선을 활용하며 유연하게 반격하는 수비입니다.' },
+            { id: 'op_ale', name: '알레힌 디펜스', enName: 'Alekhine Defense', level: '1400-1800', tags: ['e4', 'Nf6', '도발'], desc: '백의 중앙 폰 전진을 유도한 뒤 그 중앙을 공격하는 수비입니다.' },
+            { id: 'op_evans', name: '에반스 갬빗', enName: 'Evans Gambit', level: '1000-1400', tags: ['e4', '갬빗', '공격'], desc: '이탈리안 게임에서 b폰을 내주고 빠른 전개와 주도권을 얻으려는 갬빗입니다.' },
+            { id: 'op_danish', name: '덴마크 갬빗', enName: 'Danish Gambit', level: '1000-1400', tags: ['e4', '갬빗', '전개'], desc: '폰을 희생해 열린 대각선과 빠른 기물 활동을 얻으려는 공격적 선택입니다.' },
+            { id: 'op_english', name: '잉글리시 오프닝', enName: 'English Opening', level: '1000-1400', tags: ['c4', '측면', '유연성'], desc: 'c4로 시작해 중앙을 측면에서 압박하고 여러 구조로 전환할 수 있습니다.' },
+            { id: 'op_colle', name: '콜레 시스템', enName: 'Colle System', level: '600-1000', tags: ['d4', '시스템', '견고함'], desc: 'd4·e3·Nf3를 바탕으로 안정적으로 전개하는 시스템입니다.' },
+            { id: 'op_tromp', name: '트롬포프스키 어택', enName: 'Trompowsky Attack', level: '1000-1400', tags: ['d4', 'Bg5', '핀'], desc: '일찍 Bg5로 나이트를 핀해 흑의 전개를 불편하게 만드는 선택입니다.' },
+            { id: 'op_catalan', name: '카탈란 오프닝', enName: 'Catalan Opening', level: '1400-1800', tags: ['d4', 'g3', '피앙케토'], desc: 'd4와 c4 뒤 g3·Bg2로 긴 대각선 압박을 만드는 오프닝입니다.' },
+            { id: 'op_slav', name: '슬라브 디펜스', enName: 'Slav Defense', level: '1000-1400', tags: ['d4', 'c6', '견고함'], desc: '퀸즈 갬빗에 c6로 대응해 d5를 단단히 지키는 수비입니다.' },
+            { id: 'op_semislav', name: '세미슬라브 디펜스', enName: 'Semi-Slav Defense', level: '1400-1800', tags: ['d4', 'c6', '전략'], desc: 'c6와 e6으로 단단한 중앙을 만들고 복잡한 중반 구조를 준비합니다.' },
+            { id: 'op_nimzo', name: '님조인디언 디펜스', enName: 'Nimzo-Indian Defense', level: '1400-1800', tags: ['d4', 'Bb4', '핀'], desc: 'Nc3를 Bb4로 핀하면서 중앙과 폰 구조에 압박을 가하는 수비입니다.' },
+            { id: 'op_qid', name: '퀸즈 인디언 디펜스', enName: "Queen's Indian Defense", level: '1400-1800', tags: ['d4', 'b6', '피앙케토'], desc: 'b6와 Bb7으로 장기 대각선을 활용하는 퀸즈 갬빗 계열 수비입니다.' },
+            { id: 'op_grunfeld', name: '그륀펠트 디펜스', enName: 'Grünfeld Defense', level: '1400-1800', tags: ['d4', 'g6', '반격'], desc: '백의 중앙을 허용한 뒤 기물과 폰으로 강하게 공격하는 수비입니다.' },
+            { id: 'op_benoni', name: '모던 베노니', enName: 'Modern Benoni', level: '1400-1800', tags: ['d4', 'c5', '불균형'], desc: '비대칭 폰 구조로 역습 기회를 만드는 퀸즈 폰 수비입니다.' },
+            { id: 'op_benko', name: '벤코 갬빗', enName: 'Benko Gambit', level: '1400-1800', tags: ['d4', '갬빗', '퀸사이드'], desc: '퀸사이드 폰을 희생해 열린 파일과 장기 압박을 얻는 갬빗입니다.' },
+            { id: 'op_dutch', name: '더치 디펜스', enName: 'Dutch Defense', level: '1000-1400', tags: ['d4', 'f5', '킹사이드'], desc: 'f5로 e4를 통제하며 킹사이드 주도권을 노리는 수비입니다.' }
+        ];
+
+        // 각 수의 설명을 담은 상세 레슨 데이터. (color 속성으로 백/흑 명시)
+        const LESSON_DATA = [
+            { id: 'l_ita_w', openingId: 'op_ita', title: '기본 전개', color: 'w',
+              moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4'],
+              explanations: {
+                  0: { short: '킹 앞의 폰을 두 칸 전진합니다.', purpose: '중앙(d5, f5 칸)을 지배하고 비숍과 퀸의 길을 엽니다.', mistake: '시작부터 가장자리 폰을 움직이면 중앙 싸움에서 밀립니다.' },
+                  2: { short: '킹 쪽 나이트를 f3로 꺼냅니다.', purpose: '전개와 동시에 흑의 e5 폰을 공격합니다.' },
+                  4: { short: '비숍을 c4로 꺼냅니다 (이탈리안 비숍).', purpose: '흑의 가장 약한 지점인 f7 폰을 조준하며 캐슬링 준비를 마칩니다.', plan: '다음 수에는 캐슬링으로 킹을 안전하게 대피시키세요.' }
+              }
+            },
+            { id: 'l_ita_b', openingId: 'op_ita', title: 'vs 이탈리안 방어 (지우코 피아노)', color: 'b',
+              moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5'],
+              explanations: {
+                  1: { short: '백의 e4에 똑같이 e5로 응수합니다.', purpose: '중앙 공간을 5:5로 쪼개어 동등한 싸움을 만듭니다.' },
+                  3: { short: '나이트를 c6로 전개합니다.', purpose: '전개와 동시에 백의 공격으로부터 e5 폰을 든든하게 지킵니다.' },
+                  5: { short: '지우코 피아노 (비숍 c5).', purpose: '백의 이탈리안 비숍(Bc4)에 대항하여 똑같이 활동적인 대각선에 배치합니다.', plan: '다음 수로 Nf6 전개 후 킹을 안전하게 캐슬링하세요.' }
+              }
+            },
+            { id: 'l_ruy_w', openingId: 'op_ruy', title: '메인 라인 압박', color: 'w',
+              moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6', 'O-O'],
+              explanations: {
+                  4: { short: '비숍을 b5로 전개합니다.', purpose: 'e5 폰을 수비하는 흑 나이트를 간접적으로 압박합니다.' },
+                  6: { short: '비숍을 a4로 후퇴합니다.', purpose: '비숍을 잃지 않으면서 나이트 핀을 유지합니다.' },
+                  8: { short: '빠르게 캐슬링을 합니다.', purpose: '중앙 싸움이 격화되기 전 킹을 안전한 곳으로 숨깁니다.' }
+              }
+            },
+            { id: 'l_lon_w', openingId: 'op_lon', title: '피라미드 빌드업', color: 'w',
+              moves: ['d4', 'd5', 'Bf4', 'Nf6', 'e3', 'e6', 'Nf3'],
+              explanations: {
+                  0: { short: '퀸 앞 폰을 전진하여 중앙을 차지합니다.', purpose: '견고한 진영을 갖추기 위한 첫 걸음입니다.' },
+                  2: { short: '어두운 칸 비숍을 f4로 꺼냅니다.', purpose: '이것이 런던 시스템의 상징입니다. 폰 밖으로 비숍을 꺼내어 활약하게 만듭니다.' },
+                  4: { short: '폰을 e3로 올립니다.', purpose: '비숍이 바깥에 있으므로 안심하고 d4 폰을 지키는 폰 체인(피라미드)을 만듭니다.' },
+                  6: { short: '나이트를 전개하며 폰 구조를 보강합니다.', purpose: '중앙 통제력을 높이고 다음 기물 전개를 준비합니다.', plan: '남은 비숍(Bd3)을 전개하고 캐슬링을 준비하세요.' }
+              }
+            },
+            { id: 'l_qg_w', openingId: 'op_qg', title: '거절됨 (기본 압박)', color: 'w',
+              moves: ['d4', 'd5', 'c4', 'e6', 'Nc3', 'Nf6', 'Bg5'],
+              explanations: {
+                  2: { short: '폰을 c4로 올려 측면 공격을 시도합니다.', purpose: '이것이 퀸즈 갬빗입니다. 흑이 중앙 폰으로 잡도록 유도합니다.' },
+                  4: { short: '나이트를 c3로 전개합니다.', purpose: '중앙 d5 칸에 대한 압박을 극대화합니다.' },
+                  6: { short: '비숍을 g5로 꺼내어 나이트를 핀(Pin)에 겁니다.', purpose: '흑의 방어 핵심인 나이트를 움직이지 못하게 묶어버립니다.' }
+              }
+            },
+            { id: 'l_qg_b', openingId: 'op_qg', title: '거절됨 (수비 라인 구축)', color: 'b',
+              moves: ['d4', 'd5', 'c4', 'e6', 'Nc3', 'Nf6', 'Bg5', 'Be7'],
+              explanations: {
+                  1: { short: '중앙에 폰을 배치하여 방어 라인을 구축합니다.', purpose: 'd4에 대항하는 가장 기본적이고 튼튼한 응수입니다.' },
+                  3: { short: '폰을 e6로 올려 d5를 수비합니다.', purpose: 'c4 폰을 잡으면 백에게 중앙을 내어주므로, 폰 구조로 단단히 버팁니다.' },
+                  7: { short: '비숍을 e7으로 전개하여 핀을 풉니다.', purpose: '백이 나이트를 묶어둔(Pin) 것을 무효화시키고 캐슬링을 준비합니다.' }
+              }
+            },
+            { id: 'l_caro_b', openingId: 'op_caro', title: '메인 라인 수비', color: 'b',
+              moves: ['e4', 'c6', 'd4', 'd5', 'Nc3', 'dxe4', 'Nxe4', 'Bf5'],
+              explanations: {
+                  1: { short: '폰을 c6로 전진시킵니다.', purpose: '다음 수에 d5로 밀고 나가 중앙을 차지하기 위한 준비 동작입니다.' },
+                  3: { short: '계획대로 d5를 찌릅니다.', purpose: '백의 완벽한 중앙(e4, d4)을 즉각적으로 파괴하려 시도합니다.' },
+                  7: { short: '밝은 칸 비숍을 f5로 꺼냅니다.', purpose: '가장 활동적인 위치로 비숍을 꺼내어 백 나이트를 공격합니다.' }
+              }
+            },
+            { id: 'l_sic_b', openingId: 'op_sic', title: '나이도프 준비', color: 'b',
+              moves: ['e4', 'c5', 'Nf3', 'd6', 'd4', 'cxd4', 'Nxd4', 'Nf6', 'Nc3', 'a6'],
+              explanations: {
+                  1: { short: '폰을 c5로 전진합니다.', purpose: '중앙에 비대칭적으로 맞서며 반격 구조를 만듭니다.' },
+                  5: { short: '중앙 폰을 교환합니다.', purpose: '중앙을 교환해 백의 d4 폰을 없애고, 이후 기물 활동을 위한 공간을 만듭니다.' },
+                  9: { short: '폰을 a6로 올려 b5 칸을 방어합니다 (나이도프).', purpose: '백의 기물이 b5로 들어오는 것을 막으며 반격을 준비하는 핵심 수입니다.' }
+              }
+            },
+            { id: 'l_fre_b', openingId: 'op_fre', title: '전진 바리에이션 카운터', color: 'b',
+              moves: ['e4', 'e6', 'd4', 'd5', 'e5', 'c5', 'c3', 'Nc6'],
+              explanations: {
+                  1: { short: '폰을 e6로 올립니다.', purpose: '견고하게 d5 진출을 준비합니다.' },
+                  3: { short: 'd5로 중앙을 타격합니다.', purpose: '백의 중앙을 압박하여 결정을 강제합니다.' },
+                  5: { short: 'c5로 측면에서 재차 중앙을 공격합니다.', purpose: '백의 폰 체인 밑동(d4)을 무너뜨려 중앙을 약화시키려 합니다.' }
+              }
+            },
+            { id: 'l_kid_b', openingId: 'op_kid', title: '기본 피앙케토 셋업', color: 'b',
+              moves: ['d4', 'Nf6', 'c4', 'g6', 'Nc3', 'Bg7', 'e4', 'd6'],
+              explanations: {
+                  3: { short: 'g6 폰을 올려 피앙케토를 준비합니다.', purpose: '비숍을 g7 긴 대각선에 배치할 목적입니다.' },
+                  5: { short: '비숍을 g7으로 전개합니다.', purpose: '어두운 칸을 강하게 통제하는 인디언 디펜스의 상징입니다.' },
+                  7: { short: 'd6로 올립니다.', purpose: 'e5 진출을 견제하고, 이후 캐슬링 후 반격할 기반을 다집니다.' }
+              }
+            },
+            { id: 'l_e5_b', openingId: 'op_e5', title: '1...e5 기본 전개', color: 'b',
+              moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Nf6'],
+              explanations: {
+                  1: { short: 'e5로 중앙을 함께 차지합니다.', purpose: 'd4와 f4를 통제하며 백의 e4 폰에 맞섭니다.' },
+                  3: { short: 'Nc6로 e5 폰을 지킵니다.', purpose: '기물을 전개하면서 공격받은 중앙 폰을 보호합니다.' },
+                  5: { short: 'Nf6로 e4를 압박합니다.', purpose: '전개와 공격을 함께 하되, 킹 안전을 위해 다음에는 캐슬링을 생각합니다.' }
+              }
+            },
+            { id: 'l_scotch_w', openingId: 'op_scotch', title: '중앙을 여는 기본 수순', color: 'w',
+              moves: ['e4', 'e5', 'Nf3', 'Nc6', 'd4', 'exd4', 'Nxd4'],
+              explanations: {
+                  4: { short: 'd4로 중앙에 도전합니다.', purpose: 'e5 폰을 압박해 중앙을 열고 기물 활동 공간을 만듭니다.' },
+                  6: { short: '나이트로 되잡습니다.', purpose: '전개하면서 중앙을 회복하고 비숍의 길을 엽니다.', plan: 'Bc4 또는 Nc3를 전개하고 빠르게 캐슬링하세요.' }
+              }
+            }
+        ];
+
+        const STORAGE_KEY = 'opening_lab_data_v2';
+        
+        // 초기 설정값
+        const DEFAULT_DATA = {
+            version: 2,
+            stats: { completedLessons: 0 },
+            lessonProgress: {}, // { lessonId: { stage: 0, nextReview: 0, attempts: 0, lastScore: 0 } }
+            settings: { showCoords: true, reduceAnim: false }
+        };
+
+        function loadAppData() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) return { ...DEFAULT_DATA, stats: {...DEFAULT_DATA.stats}, lessonProgress: {}, settings: {...DEFAULT_DATA.settings} };
+                const data = JSON.parse(raw);
+                if (!data || typeof data !== 'object') throw new Error('저장 형식 오류');
+                return {
+                    version: 2,
+                    stats: { ...DEFAULT_DATA.stats, ...(data.stats || {}) },
+                    lessonProgress: data.lessonProgress && typeof data.lessonProgress === 'object' ? data.lessonProgress : {},
+                    settings: { ...DEFAULT_DATA.settings, ...(data.settings || {}) }
+                };
+            } catch (e) {
+                console.error("데이터 로드 실패, 기본값 사용", e);
+                return DEFAULT_DATA;
+            }
+        }
+
+        function saveAppData(data) {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            } catch (e) {
+                console.warn("로컬 스토리지 저장 실패 (용량 초과 또는 시크릿 모드)");
+            }
+        }
+
+        // 분리한 실제 체스 말 타격음 중 하나를 매 수마다 무작위로 재생합니다.
+        const MOVE_SOUND_URLS = Array.from({length: 10}, (_, index) => `sounds/chess-move-${index + 1}.mp3`);
+        const playMoveSound = () => {
+            const sound = new Audio(MOVE_SOUND_URLS[Math.floor(Math.random() * MOVE_SOUND_URLS.length)]);
+            sound.preload = 'auto';
+            sound.volume = 0.62;
+            sound.play().catch(() => {}); // 브라우저가 첫 사용자 상호작용 전 재생을 막는 경우를 안전하게 처리
+        };
+
+        // SAN 목록을 체스 엔진을 돌려 상세 정보(From/To/FEN) 객체 배열로 변환하는 헬퍼
+        function buildLessonMoves(movesArray, explanations, lessonColor) {
+            const chess = new Chess();
+            const detailedMoves = [];
+            
+            for (let i = 0; i < movesArray.length; i++) {
+                const sanMove = movesArray[i];
+                const moveResult = chess.move(sanMove);
+                if (!moveResult) {
+                    console.error("Invalid PGN move in lesson data:", sanMove);
+                    break;
+                }
+                
+                const isWhite = i % 2 === 0;
+                const moveColor = isWhite ? 'w' : 'b';
+                
+                detailedMoves.push({
+                    san: sanMove,
+                    from: moveResult.from,
+                    to: moveResult.to,
+                    color: moveColor,
+                    fen: chess.fen(),
+                    isOpponent: moveColor !== lessonColor,
+                    explanation: explanations && explanations[i] ? explanations[i] : null
+                });
+            }
+            return detailedMoves;
+        }
+
+        const App = () => {
+            const [appData, setAppData] = useState(() => loadAppData());
+            const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'lesson'
+            const [activeLesson, setActiveLesson] = useState(null);
+            
+            // 데이터 변경 시 저장
+            useEffect(() => { saveAppData(appData); }, [appData]);
+
+            const navigate = (viewName, lesson = null) => {
+                setActiveLesson(lesson);
+                setView(viewName);
+            };
+
+            const updateSettings = (patch) => setAppData(prev => ({ ...prev, settings: { ...prev.settings, ...patch } }));
+            const resetProgress = () => {
+                if (window.confirm('모든 학습 기록과 복습 일정을 지울까요? 이 작업은 되돌릴 수 없습니다.')) {
+                    setAppData({ ...DEFAULT_DATA, stats: {...DEFAULT_DATA.stats}, lessonProgress: {}, settings: {...appData.settings} });
+                }
+            };
+
+            const updateLessonProgress = (lessonId, resultStats) => {
+                setAppData(prev => {
+                    const newData = { ...prev };
+                    const currentProgress = newData.lessonProgress[lessonId] || { stage: 0, attempts: 0 };
+                    
+                    // 간격 반복 알고리즘
+                    const isPerfect = resultStats.isPerfect; 
+                    let nextStage = isPerfect ? currentProgress.stage + 1 : 1;
+                    
+                    let daysToAdd = 1;
+                    if(nextStage === 2) daysToAdd = 3;
+                    else if(nextStage === 3) daysToAdd = 7;
+                    else if(nextStage === 4) daysToAdd = 14;
+                    else if(nextStage >= 5) daysToAdd = 30;
+
+                    const nextReviewDate = Date.now() + (daysToAdd * 86400000); // ms in a day
+                    
+                    newData.lessonProgress[lessonId] = {
+                        stage: nextStage,
+                        nextReview: nextReviewDate,
+                        attempts: currentProgress.attempts + 1,
+                        lastScore: resultStats.scoreRate
+                    };
+                    
+                    // 첫 완료 체크
+                    if (currentProgress.attempts === 0) {
+                        newData.stats.completedLessons = (newData.stats.completedLessons || 0) + 1;
+                    }
+
+                    return newData;
+                });
+            };
+
+            // 복습이 필요한 레슨 계산
+            const getReviewableLessons = () => {
+                const now = Date.now();
+                return Object.keys(appData.lessonProgress).filter(id => {
+                    const prog = appData.lessonProgress[id];
+                    return prog.nextReview > 0 && prog.nextReview <= now;
+                });
+            };
+
+            return (
+                <div className="h-screen flex flex-col md:flex-row bg-[#312e2b] text-[#c3c2c1] overflow-hidden">
+                    {/* 네비게이션 바 */}
+                    <nav className="bg-[#262421] w-full md:w-20 lg:w-48 flex md:flex-col items-center py-2 md:py-6 border-b md:border-b-0 md:border-r border-[#403d39] z-20 flex-shrink-0">
+                        <div className="text-[#81b64c] text-2xl md:text-3xl font-bold mb-0 md:mb-8 mx-4 md:mx-0 flex items-center gap-2 cursor-pointer" onClick={() => navigate('dashboard')}>
+                            <i className="fa-solid fa-flask"></i>
+                            <span className="hidden lg:block text-xl tracking-wide">Lab</span>
+                        </div>
+                        <div className="flex md:flex-col gap-6 md:gap-8 flex-1 justify-center md:justify-start w-full px-4 md:px-0">
+                            <button onClick={() => navigate('dashboard')} className={`flex flex-col items-center transition-colors ${view === 'dashboard' ? 'text-white' : 'text-[#8c8a88] hover:text-white'}`}>
+                                <i className="fa-solid fa-house text-xl mb-1"></i>
+                                <span className="text-xs hidden lg:block font-medium">홈</span>
+                            </button>
+                            <button onClick={() => navigate('list')} className={`flex flex-col items-center transition-colors ${view === 'list' ? 'text-white' : 'text-[#8c8a88] hover:text-white'}`}>
+                                <i className="fa-solid fa-book-open text-xl mb-1"></i>
+                                <span className="text-xs hidden lg:block font-medium">학습/목록</span>
+                            </button>
+                            <button aria-label="설정" onClick={() => navigate('settings')} className={`flex flex-col items-center transition-colors ${view === 'settings' ? 'text-white' : 'text-[#8c8a88] hover:text-white'}`}>
+                                <i className="fa-solid fa-gear text-xl mb-1"></i>
+                                <span className="text-xs hidden lg:block font-medium">설정</span>
+                            </button>
+                        </div>
+                    </nav>
+
+                    {/* 메인 뷰 라우팅 */}
+                    <main className="flex-1 overflow-y-auto w-full relative">
+                        {view === 'dashboard' && <Dashboard navigate={navigate} appData={appData} reviewList={getReviewableLessons()} />}
+                        {view === 'list' && <OpeningList navigate={navigate} appData={appData} />}
+                        {view === 'settings' && <Settings appData={appData} updateSettings={updateSettings} resetProgress={resetProgress} />}
+                        {view === 'lesson' && activeLesson && (
+                            <LessonRunner lesson={activeLesson} onExit={() => navigate('list')} updateProgress={updateLessonProgress} settings={appData.settings} />
+                        )}
+                    </main>
+                </div>
+            );
+        };
+
+        const Settings = ({ appData, updateSettings, resetProgress }) => (
+            <div className="p-4 md:p-8 max-w-2xl mx-auto">
+                <h1 className="text-2xl font-bold text-white mb-6">학습 기록 · 설정</h1>
+                <div className="bg-[#262421] border border-[#403d39] rounded-lg p-5 space-y-5">
+                    <label className="flex justify-between gap-4 items-center cursor-pointer"><span><b className="text-white block">보드 좌표 표시</b><small>현재 보드 방향에 맞춰 좌표를 표시합니다.</small></span><input aria-label="보드 좌표 표시" type="checkbox" checked={appData.settings.showCoords !== false} onChange={e=>updateSettings({showCoords:e.target.checked})}/></label>
+                    <label className="flex justify-between gap-4 items-center cursor-pointer"><span><b className="text-white block">애니메이션 줄이기</b><small>수 이동 애니메이션을 최소화합니다.</small></span><input aria-label="애니메이션 줄이기" type="checkbox" checked={!!appData.settings.reduceAnim} onChange={e=>updateSettings({reduceAnim:e.target.checked})}/></label>
+                    <div className="border-t border-[#403d39] pt-5"><p className="text-sm mb-3">기록은 이 브라우저의 localStorage에 저장됩니다. GitHub Pages에서도 로그인 없이 유지되지만, 다른 기기·브라우저와는 동기화되지 않습니다.</p><button onClick={resetProgress} className="bg-red-900/60 hover:bg-red-800 text-white px-4 py-2 rounded font-bold">학습 기록 초기화</button></div>
+                </div>
+            </div>
+        );
+
+        const Dashboard = ({ navigate, appData, reviewList }) => {
+            const totalLessons = LESSON_DATA.length;
+            const completed = appData.stats.completedLessons || 0;
+            const progressPct = Math.round((completed / totalLessons) * 100) || 0;
+            const routeLevels = [
+                { title: '초심자 스테이지', rating: '600~1000', desc: '기본 전개와 중앙 장악을 익힙니다.', lessons: [['l_ita_w', '이탈리안', '백·중앙'], ['l_ita_b', '이탈리안 방어', '흑·전개'], ['l_lon_w', '런던 시스템', '백·구조'], ['l_e5_b', '1...e5', '흑·중앙'], ['l_scotch_w', '스카치', '백·교환']] },
+                { title: '기본 분기 스테이지', rating: '1000~1400', desc: '대표적인 중앙 구조와 방어를 배웁니다.', lessons: [['l_qg_w', '퀸즈 갬빗', '백·압박'], ['l_qg_b', '갬빗 거절', '흑·수비'], ['l_caro_b', '카로칸', '흑·견고'], ['l_fre_b', '프렌치', '흑·반격'], ['l_ruy_w', '루이 로페즈', '백·압박']] },
+                { title: '구조와 반격 스테이지', rating: '1400~1800', desc: '불균형한 구조와 적극적인 반격을 연습합니다.', lessons: [['l_sic_b', '시칠리안', '흑·반격'], ['l_kid_b', '킹스 인디언', '흑·피앙케토']] }
+            ];
+            const routeComplete = (route) => route.lessons.every(([id]) => (appData.lessonProgress[id]?.attempts || 0) > 0);
+            const activeRouteIndex = routeLevels.findIndex(route => !routeComplete(route));
+            const isAllRoutesComplete = activeRouteIndex === -1;
+            const activeRoute = routeLevels[isAllRoutesComplete ? routeLevels.length - 1 : activeRouteIndex];
+            const activePath = activeRoute.lessons.map(([id, name, meta]) => ({ lesson: LESSON_DATA.find(l => l.id === id), name, meta }));
+
+            return (
+                <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
+                    <h1 className="text-3xl font-bold text-white mb-6">환영합니다! 체스 오프닝 연구소입니다.</h1>
+                    {Object.keys(appData.lessonProgress).length === 0 && <div className="bg-[#1a1918] border-l-4 border-[#81b64c] p-4 rounded mb-6 text-sm">먼저 백 오프닝 하나와 흑 대응 하나를 골라보세요. 긴 수순보다 처음 몇 수의 이유를 이해하는 것이 목표입니다.</div>}
+                    
+                    {/* 통계 요약 카드 */}
+                    <div className="bg-[#262421] p-6 rounded-lg border border-[#403d39] mb-8 shadow-lg flex flex-col md:flex-row gap-6 items-center justify-between">
+                        <div>
+                            <p className="text-[#8c8a88] text-sm font-bold uppercase tracking-wider mb-1">나의 진도</p>
+                            <p className="text-white text-2xl font-bold">{completed} / {totalLessons} 레슨 완료</p>
+                            <div className="w-full md:w-64 bg-[#1a1918] h-3 rounded-full mt-3 overflow-hidden">
+                                <div className="bg-[#81b64c] h-full" style={{width: `${progressPct}%`}}></div>
+                            </div>
+                        </div>
+                        
+                        <div className="flex gap-4">
+                            <div className="text-center bg-[#1a1918] px-4 py-3 rounded-lg border border-[#403d39]">
+                                <span className="block text-2xl text-yellow-500 font-bold">{reviewList.length}</span>
+                                <span className="text-xs text-[#8c8a88]">오늘 복습</span>
+                            </div>
+                            <div className="text-center bg-[#1a1918] px-4 py-3 rounded-lg border border-[#403d39]">
+                                <span className="block text-2xl text-blue-400 font-bold">{Object.keys(appData.lessonProgress).length}</span>
+                                <span className="text-xs text-[#8c8a88]">학습 중</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* 추천 학습 스테이지 */}
+                        <div className="bg-[#262421] p-6 rounded-lg border border-[#403d39] flex flex-col">
+                            <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                                <i className="fa-solid fa-chess-knight text-[#81b64c]"></i> {isAllRoutesComplete ? '전체 추천 루트 완료!' : `${activeRoute.title} · ${activeRoute.rating}`}
+                            </h2>
+                            <div className="flex gap-1 mb-3" aria-label="추천 단계 진행"><span className="text-xs text-[#8c8a88] mr-2">단계</span>{routeLevels.map((route, index) => <span key={route.rating} className={`w-7 h-2 rounded-full ${index < (isAllRoutesComplete ? routeLevels.length : activeRouteIndex + 1) ? 'bg-[#81b64c]' : 'bg-[#4c4946]'}`}></span>)}</div>
+                            <p className="text-sm text-[#8c8a88] mb-4">{isAllRoutesComplete ? '모든 추천 레슨을 끝냈습니다. 라이브러리에서 원하는 오프닝을 골라 복습해보세요.' : `${activeRoute.desc} 이 단계의 모든 칸을 완료하면 다음 수준이 자동으로 열립니다.`}</p>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                {activePath.map(({lesson, name, meta}, index) => {
+                                    const done = appData.lessonProgress[lesson.id]?.attempts > 0;
+                                    return <button key={lesson.id} onClick={() => navigate('lesson', lesson)} className={`route-tile ${lesson.color === 'b' ? 'route-tile--black' : ''} min-h-[92px] rounded-xl p-2 text-left text-white`} aria-label={`${index+1}단계 ${name} 시작`}>
+                                        <div className="flex justify-between"><span className="text-2xl font-black">{index + 1}</span>{done ? <i className="fa-solid fa-check-circle text-[#a3d160]"></i> : <i className={`fa-solid fa-chess-pawn ${lesson.color === 'w' ? 'text-gray-100' : 'text-gray-400'}`}></i>}</div>
+                                        <span className="block font-bold text-xs mt-2 leading-tight">{name}</span><span className="block text-[10px] text-[#c3c2c1] mt-1">{meta}</span>
+                                    </button>;
+                                })}
+                            </div>
+                            <button onClick={() => navigate('list')} className="mt-4 text-sm text-[#a3d160] hover:text-white text-left">다른 오프닝 라이브러리 보기 <i className="fa-solid fa-arrow-right ml-1"></i></button>
+                        </div>
+
+                        {/* 복습 패널 */}
+                        <div className="bg-[#262421] p-6 rounded-lg border border-[#403d39]">
+                            <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                                <i className="fa-solid fa-calendar-check text-[#81b64c]"></i> 오늘의 복습
+                            </h2>
+                            
+                            {reviewList.length === 0 ? (
+                                <div className="text-center py-8 text-[#8c8a88]">
+                                    <i className="fa-solid fa-mug-hot text-4xl mb-3 text-[#403d39]"></i>
+                                    <p>현재 밀린 복습이 없습니다.<br/>새로운 오프닝을 학습해 보세요!</p>
+                                    <button onClick={() => navigate('list')} className="mt-4 px-4 py-2 bg-[#3c3a38] text-white rounded hover:bg-[#4c4946]">목록 보기</button>
+                                </div>
+                            ) : (
+                                <div className="space-y-2 max-h-[220px] overflow-y-auto">
+                                    {reviewList.map(lessonId => {
+                                        const lesson = LESSON_DATA.find(l => l.id === lessonId);
+                                        if(!lesson) return null;
+                                        return (
+                                            <div key={lessonId} onClick={() => navigate('lesson', lesson)} className="flex items-center justify-between bg-[#1a1918] p-3 rounded border border-[#403d39] hover:border-[#81b64c] cursor-pointer group">
+                                                <div>
+                                                    <span className={`text-xs font-bold px-2 py-0.5 rounded mr-2 ${lesson.color === 'w' ? 'bg-gray-200 text-gray-800' : 'bg-gray-700 text-white'}`}>
+                                                        {lesson.color === 'w' ? '백' : '흑'}
+                                                    </span>
+                                                    <span className="text-white group-hover:text-[#81b64c] transition-colors">{lesson.title}</span>
+                                                </div>
+                                                <i className="fa-solid fa-play text-xs text-[#8c8a88]"></i>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const OpeningList = ({ navigate, appData }) => {
+            const [filterColor, setFilterColor] = useState('all'); // 'all', 'w', 'b'
+            const [filterLevel, setFilterLevel] = useState('600-1000');
+            const [filterFamily, setFilterFamily] = useState('all');
+            const [filterStatus, setFilterStatus] = useState('all');
+            const [query, setQuery] = useState('');
+
+            return (
+                <div className="p-4 md:p-8 max-w-5xl mx-auto">
+                    <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                        <h1 className="text-2xl font-bold text-white">오프닝 라이브러리</h1>
+                        <div className="flex bg-[#262421] p-1 rounded-lg border border-[#403d39]">
+                            <button onClick={()=>setFilterColor('all')} className={`px-4 py-1.5 rounded text-sm ${filterColor==='all' ? 'bg-[#3c3a38] text-white' : 'text-[#8c8a88]'}`}>전체</button>
+                            <button onClick={()=>setFilterColor('w')} className={`px-4 py-1.5 rounded text-sm ${filterColor==='w' ? 'bg-gray-200 text-gray-800 font-bold' : 'text-[#8c8a88]'}`}>백으로 연습</button>
+                            <button onClick={()=>setFilterColor('b')} className={`px-4 py-1.5 rounded text-sm ${filterColor==='b' ? 'bg-gray-700 text-white font-bold' : 'text-[#8c8a88]'}`}>흑으로 연습</button>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mb-6">
+                        <input aria-label="오프닝 검색" value={query} onChange={e=>setQuery(e.target.value)} placeholder="이름·핵심 개념 검색" className="bg-[#262421] border border-[#403d39] rounded px-3 py-2 text-white" />
+                        <select aria-label="추천 수준 필터" value={filterLevel} onChange={e=>setFilterLevel(e.target.value)} className="bg-[#262421] border border-[#403d39] rounded px-3 py-2"><option value="all">모든 추천 수준</option><option value="600-1000">600~1000 · 기본 원칙</option><option value="1000-1400">1000~1400 · 기본 분기</option><option value="1400-1800">1400~1800 · 구조와 반격</option></select>
+                        <select aria-label="첫 수 계열 필터" value={filterFamily} onChange={e=>setFilterFamily(e.target.value)} className="bg-[#262421] border border-[#403d39] rounded px-3 py-2"><option value="all">모든 시작 수</option><option value="e4">1.e4 계열</option><option value="d4">1.d4 계열</option></select>
+                        <select aria-label="학습 상태 필터" value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="bg-[#262421] border border-[#403d39] rounded px-3 py-2"><option value="all">모든 학습 상태</option><option value="new">미학습</option><option value="learning">학습 중</option><option value="review">복습 필요</option><option value="mastered">숙달</option></select>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {OPENING_DATA.map(op => {
+                            const openingLessons = LESSON_DATA.filter(l => l.openingId === op.id);
+                            const whiteLessons = openingLessons.filter(l => l.color === 'w');
+                            const blackLessons = openingLessons.filter(l => l.color === 'b');
+                            const lowerQuery = query.trim().toLowerCase();
+                            const allProgress = openingLessons.map(l=>appData.lessonProgress[l.id]).filter(Boolean);
+                            const isReview = allProgress.some(p=>p.nextReview && p.nextReview <= Date.now());
+                            const isMastered = openingLessons.length > 0 && allProgress.length === openingLessons.length && allProgress.every(p=>p.stage >= 4 && p.lastScore === 1);
+                            const isNew = allProgress.length === 0;
+                            const matchesStatus = filterStatus === 'all' || (filterStatus==='new' && isNew) || (filterStatus==='learning' && !isNew && !isReview && !isMastered) || (filterStatus==='review' && isReview) || (filterStatus==='mastered' && isMastered);
+                            
+                            // 탭 필터링 적용
+                            if (filterColor === 'w' && whiteLessons.length === 0) return null;
+                            if (filterColor === 'b' && blackLessons.length === 0) return null;
+                            if (filterLevel !== 'all' && op.level !== filterLevel) return null;
+                            if (filterFamily !== 'all' && !op.tags.includes(filterFamily)) return null;
+                            if (!matchesStatus || (lowerQuery && !`${op.name} ${op.enName} ${op.tags.join(' ')} ${op.desc}`.toLowerCase().includes(lowerQuery))) return null;
+                            
+                            return (
+                                <div key={op.id} className="bg-[#262421] border border-[#403d39] rounded-lg overflow-hidden flex flex-col">
+                                    <div className="p-4 border-b border-[#403d39] bg-[#312e2b]">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <h2 className="text-xl font-bold text-white">
+                                                <i className="fa-solid fa-chess-board mr-2 text-gray-400"></i>
+                                                {op.name}
+                                            </h2>
+                                            <span className="text-xs bg-[#1a1918] px-2 py-1 rounded text-[#8c8a88] font-mono">{op.enName}</span>
+                                        </div>
+                                        <div className="flex gap-2 mb-3">
+                                            <span className="text-[10px] uppercase font-bold bg-[#81b64c] text-white px-1.5 py-0.5 rounded">{op.level}</span>
+                                            {op.tags.map(t => <span key={t} className="text-[10px] uppercase font-bold border border-[#555] text-[#8c8a88] px-1.5 py-0.5 rounded">{t}</span>)}
+                                        </div>
+                                        <p className="text-sm text-[#a5a4a2]">{op.desc}</p>
+                                    </div>
+                                    
+                                    <div className="p-3 flex-1 flex flex-col gap-3 bg-[#262421]">
+                                        {whiteLessons.length > 0 && (filterColor === 'all' || filterColor === 'w') && (
+                                            <div>
+                                                <p className="text-xs font-bold text-gray-300 mb-2 flex items-center"><i className="fa-regular fa-chess-pawn mr-2"></i>백으로 연습하기</p>
+                                                {whiteLessons.map(lesson => {
+                                                    const prog = appData.lessonProgress[lesson.id];
+                                                    const isCompleted = prog && prog.attempts > 0;
+                                                    return (
+                                                        <div key={lesson.id} onClick={() => navigate('lesson', lesson)} 
+                                                             className="flex justify-between items-center p-3 mb-1 bg-[#1a1918] hover:bg-[#3c3a38] border border-[#403d39] rounded cursor-pointer group transition-colors">
+                                                            <div>
+                                                                <span className="text-white text-sm font-medium block">{lesson.title}</span>
+                                                                <span className="text-xs text-[#8c8a88] font-mono">{lesson.moves.slice(0,4).join(' ')}...</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-3">
+                                                                {isCompleted && <i className="fa-solid fa-check-circle text-[#81b64c]" title="학습 이력 있음"></i>}
+                                                                <button className="text-[#8c8a88] group-hover:text-white"><i className="fa-solid fa-play"></i></button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                        
+                                        {blackLessons.length > 0 && (filterColor === 'all' || filterColor === 'b') && (
+                                            <div>
+                                                <p className="text-xs font-bold text-gray-400 mb-2 flex items-center"><i className="fa-solid fa-chess-pawn mr-2"></i>흑으로 연습하기</p>
+                                                {blackLessons.map(lesson => {
+                                                    const prog = appData.lessonProgress[lesson.id];
+                                                    const isCompleted = prog && prog.attempts > 0;
+                                                    return (
+                                                        <div key={lesson.id} onClick={() => navigate('lesson', lesson)} 
+                                                             className="flex justify-between items-center p-3 mb-1 bg-[#1a1918] hover:bg-[#3c3a38] border border-[#403d39] rounded cursor-pointer group transition-colors">
+                                                            <div>
+                                                                <span className="text-white text-sm font-medium block">{lesson.title}</span>
+                                                                <span className="text-xs text-[#8c8a88] font-mono">{lesson.moves.slice(0,4).join(' ')}...</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-3">
+                                                                {isCompleted && <i className="fa-solid fa-check-circle text-[#81b64c]" title="학습 이력 있음"></i>}
+                                                                <button className="text-[#8c8a88] group-hover:text-white"><i className="fa-solid fa-play"></i></button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                        {openingLessons.length === 0 && <div className="p-3 bg-[#1a1918] border border-dashed border-[#555] rounded text-sm text-[#8c8a88]"><i className="fa-solid fa-bookmark mr-2"></i>오프닝 사전에 추가됨 · 상세 수순 훈련은 준비 중입니다.</div>}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        };
+
+        const LessonRunner = ({ lesson, onExit, updateProgress, settings }) => {
+            const [mode, setMode] = useState('learn'); // 'learn', 'train', 'result'
+            const boardRef = useRef(null);
+            const boardInstance = useRef(null);
+            const chessEngine = useRef(new Chess());
+            
+            // 파싱된 레슨 데이터 (from, to, fen, 설명 포함 배열)
+            const parsedMoves = useMemo(() => buildLessonMoves(lesson.moves, lesson.explanations, lesson.color), [lesson]);
+            
+            // 상태 관리
+            const [currentMoveIdx, setCurrentMoveIdx] = useState(0); // 0은 시작(빈) 상태
+            const [boardFen, setBoardFen] = useState('start');
+            const [highlightSquares, setHighlightSquares] = useState(null);
+            const [selectedSquare, setSelectedSquare] = useState(null);
+            const [clickTargets, setClickTargets] = useState([]);
+            const [isFlipped, setIsFlipped] = useState(false);
+            
+            // 훈련 관련 상태
+            const [trainState, setTrainState] = useState('waiting_user'); // waiting_user, opponent_moving, error
+            const [feedbackMsg, setFeedbackMsg] = useState('');
+            const [hintLevel, setHintLevel] = useState(0);
+            const [stats, setStats] = useState({ totalUserMoves: 0, firstTryCorrect: 0, hints: 0, currentMoveAttempts: 0 });
+
+            // --- 클로저(Closure) 버그 방지용 최신 상태 컨테이너 ---
+            // React의 useEffect 안에서만 생성되는 chessboard.js의 이벤트가 항상 최신 상태를 볼 수 있도록 합니다.
+            const stateRef = useRef({});
+            useEffect(() => {
+                stateRef.current = { mode, trainState, currentMoveIdx, parsedMoves, hintLevel, stats, lessonColor: lesson.color };
+            });
+
+            // 상대편 기물 자동 움직임 트리거 (useRef로 담아 onDrop 안에서도 에러 없이 호출)
+            const triggerOpponentMoveRef = useRef();
+            const opponentTimerRef = useRef(null);
+            const goToMoveRef = useRef(null);
+            const processMoveRef = useRef(null);
+            const squareClickRef = useRef(null);
+            triggerOpponentMoveRef.current = (idx) => {
+                window.clearTimeout(opponentTimerRef.current);
+                opponentTimerRef.current = setTimeout(() => {
+                    if (stateRef.current.mode !== 'train' || stateRef.current.trainState !== 'opponent_moving') return;
+                    const moveData = stateRef.current.parsedMoves[idx];
+                    if(!moveData) return;
+                    chessEngine.current.move({from: moveData.from, to: moveData.to, promotion: 'q'});
+                    playMoveSound();
+                    setBoardFen(chessEngine.current.fen());
+                    setHighlightSquares({from: moveData.from, to: moveData.to});
+                    
+                    const nextIdx = idx + 1;
+                    setCurrentMoveIdx(nextIdx);
+                    
+                    if (nextIdx >= stateRef.current.parsedMoves.length) {
+                        setTrainState('finished');
+                        opponentTimerRef.current = window.setTimeout(() => setMode('result'), 1000);
+                    } else {
+                        setTrainState('waiting_user');
+                        setFeedbackMsg('당신의 차례입니다.');
+                    }
+                }, 600); // 상대방 응수 지연 시간
+            };
+
+            processMoveRef.current = (source, target) => {
+                const { mode, trainState, currentMoveIdx, parsedMoves, hintLevel, stats } = stateRef.current;
+                const expectedMove = parsedMoves[currentMoveIdx];
+                if (!expectedMove) return 'snapback';
+                if (mode === 'learn') {
+                    if (expectedMove.isOpponent) return 'snapback';
+                    const move = chessEngine.current.move({ from: source, to: target, promotion: 'q' });
+                    if (!move) return 'snapback';
+                    chessEngine.current.undo();
+                    if (move.from !== expectedMove.from || move.to !== expectedMove.to) return 'snapback';
+                    goToMoveRef.current(currentMoveIdx + 1);
+                    return;
+                }
+                if (mode !== 'train' || trainState !== 'waiting_user') return 'snapback';
+                const move = chessEngine.current.move({ from: source, to: target, promotion: 'q' });
+                if (!move) { setFeedbackMsg('불법 수입니다. 이 기물은 그 칸으로 이동할 수 없습니다.'); return 'snapback'; }
+                if (move.from !== expectedMove.from || move.to !== expectedMove.to) {
+                    chessEngine.current.undo();
+                    setFeedbackMsg('가능한 수지만, 지금 연습하는 수순은 다른 수입니다.');
+                    setStats(s => ({ ...s, currentMoveAttempts: s.currentMoveAttempts + 1 }));
+                    setHintLevel(prev => Math.min(prev + 1, 3));
+                    return 'snapback';
+                }
+                playMoveSound(); setFeedbackMsg('정답입니다!'); setBoardFen(chessEngine.current.fen()); setHighlightSquares({from: source, to: target});
+                if (stats.currentMoveAttempts === 0 && hintLevel === 0) setStats(s => ({ ...s, firstTryCorrect: s.firstTryCorrect + 1 }));
+                const nextIdx = currentMoveIdx + 1;
+                setCurrentMoveIdx(nextIdx); setHintLevel(0); setStats(s => ({...s, currentMoveAttempts: 0}));
+                if (nextIdx >= parsedMoves.length) {
+                    window.clearTimeout(opponentTimerRef.current);
+                    opponentTimerRef.current = window.setTimeout(() => { setTrainState('finished'); setMode('result'); }, 500);
+                } else if (parsedMoves[nextIdx].isOpponent) { setTrainState('opponent_moving'); triggerOpponentMoveRef.current(nextIdx); }
+                return;
+            };
+
+            squareClickRef.current = (square) => {
+                const { mode, trainState, currentMoveIdx, parsedMoves, lessonColor } = stateRef.current;
+                const expected = parsedMoves[currentMoveIdx];
+                const canMove = mode === 'train' && trainState === 'waiting_user';
+                if (!canMove) return;
+                if (selectedSquare) {
+                    if (selectedSquare === square) { setSelectedSquare(null); setClickTargets([]); return; }
+                    processMoveRef.current(selectedSquare, square);
+                    setSelectedSquare(null); setClickTargets([]);
+                    return;
+                }
+                const piece = chessEngine.current.get(square);
+                if (!piece || piece.color !== lessonColor) return;
+                const targets = chessEngine.current.moves({square, verbose:true}).map(m => ({to:m.to, capture:!!m.captured}));
+                setSelectedSquare(square); setClickTargets(targets);
+            };
+
+            // --- 체스보드 초기화 (useEffect) ---
+            useEffect(() => {
+                const config = {
+                    pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+                    position: 'start',
+                    orientation: (lesson.color === 'w') !== isFlipped ? 'white' : 'black',
+                    showNotation: settings.showCoords !== false,
+                    draggable: false,
+                    onDragStart: (source, piece) => {
+                        const { mode, trainState, currentMoveIdx, parsedMoves, lessonColor } = stateRef.current;
+                        const isLearnUserTurn = mode === 'learn' && currentMoveIdx < parsedMoves.length && !parsedMoves[currentMoveIdx].isOpponent;
+                        
+                        // 학습 모드는 한 수씩 보고 설명을 확인하는 관찰 전용 흐름입니다.
+                        if (mode === 'learn') {
+                            return false;
+                        }
+
+                        // 훈련 모드일 때
+                        if (mode !== 'train' || trainState !== 'waiting_user') return false;
+                        if ((lessonColor === 'w' && piece.search(/^b/) !== -1) ||
+                            (lessonColor === 'b' && piece.search(/^w/) !== -1)) {
+                            return false;
+                        }
+                        return true;
+                    },
+                    onDrop: (source, target) => processMoveRef.current(source, target),
+                    moveSpeed: settings.reduceAnim ? 'fast' : 'normal',
+                    snapbackSpeed: settings.reduceAnim ? 50 : 250
+                };
+                
+                if (boardRef.current && !boardInstance.current) {
+                    boardInstance.current = Chessboard(boardRef.current, config);
+                    // chessboard.js의 드래그 처리와 무관하게, 캡처 단계에서 마우스 클릭을 받습니다.
+                    const boardClickHandler = (event) => {
+                        const square = event.target.closest && event.target.closest('.square-55d63');
+                        if (square && boardRef.current && boardRef.current.contains(square)) {
+                            squareClickRef.current(square.getAttribute('data-square'));
+                        }
+                    };
+                    boardRef.current.addEventListener('mousedown', boardClickHandler, true);
+                    
+                    setTimeout(() => {
+                        if (boardInstance.current) {
+                            boardInstance.current.resize();
+                        }
+                    }, 50);
+
+                    const resizeBoard = () => boardInstance.current && boardInstance.current.resize();
+                    window.addEventListener('resize', resizeBoard);
+                    return () => {
+                        window.removeEventListener('resize', resizeBoard);
+                        if (boardRef.current) boardRef.current.removeEventListener('mousedown', boardClickHandler, true);
+                        window.clearTimeout(opponentTimerRef.current);
+                        if(boardInstance.current) {
+                            boardInstance.current.destroy();
+                            boardInstance.current = null;
+                        }
+                    };
+                }
+            }, [lesson.color, settings.showCoords, isFlipped]);
+
+            // FEN 동기화 및 하이라이트 처리
+            useEffect(() => {
+                if (boardInstance.current) {
+                    boardInstance.current.position(boardFen, !settings.reduceAnim);
+                    
+                    $('#board-container .square-55d63').removeClass('highlight1-32417 highlight2-9c5d2');
+                    if (highlightSquares) {
+                        $(`#board-container .square-${highlightSquares.from}`).addClass('highlight1-32417');
+                        $(`#board-container .square-${highlightSquares.to}`).addClass('highlight2-9c5d2');
+                    }
+                    $('#board-container .square-55d63').removeClass('selected-square legal-target legal-capture');
+                    if (selectedSquare) $(`#board-container .square-${selectedSquare}`).addClass('selected-square');
+                    clickTargets.forEach(t => $(`#board-container .square-${t.to}`).addClass(t.capture ? 'legal-capture' : 'legal-target'));
+                }
+            }, [boardFen, highlightSquares, selectedSquare, clickTargets, settings.reduceAnim]);
+
+            // --- 모드 전환 초기화 ---
+            useEffect(() => {
+                chessEngine.current.reset();
+                setCurrentMoveIdx(0);
+                setBoardFen('start');
+                setHighlightSquares(null);
+                setSelectedSquare(null); setClickTargets([]); window.clearTimeout(opponentTimerRef.current);
+                setFeedbackMsg('');
+                
+                if (mode === 'train') {
+                    setStats({ totalUserMoves: parsedMoves.filter(m => !m.isOpponent).length, firstTryCorrect: 0, hints: 0, currentMoveAttempts: 0 });
+                    setHintLevel(0);
+                    // 첫 수가 상대 수라면 즉시 실행
+                    if (parsedMoves.length > 0 && parsedMoves[0].isOpponent) {
+                        setTrainState('opponent_moving');
+                        triggerOpponentMoveRef.current(0);
+                    } else {
+                        setTrainState('waiting_user');
+                    }
+                }
+            }, [mode, lesson]);
+            
+            // --- 힌트 사용 ---
+            const useHint = (level) => {
+                setHintLevel(level);
+                setStats(s => ({...s, hints: s.hints + 1}));
+                if(level === 3) {
+                    // 정답 화살표시(보드 하이라이트)
+                    const expected = parsedMoves[currentMoveIdx];
+                    setHighlightSquares({from: expected.from, to: expected.to});
+                }
+            };
+
+            const skipToAnswer = () => {
+                const expected = parsedMoves[currentMoveIdx];
+                chessEngine.current.move({from: expected.from, to: expected.to, promotion: 'q'});
+                playMoveSound();
+                setBoardFen(chessEngine.current.fen());
+                setHighlightSquares({from: expected.from, to: expected.to});
+                
+                setStats(s => ({...s, hints: s.hints + 1, currentMoveAttempts: 0}));
+                setHintLevel(0);
+                
+                const nextIdx = currentMoveIdx + 1;
+                setCurrentMoveIdx(nextIdx);
+
+                if (nextIdx >= parsedMoves.length) {
+                    setTrainState('finished');
+                    window.setTimeout(() => setMode('result'), 500);
+                } else {
+                    if (parsedMoves[nextIdx].isOpponent) {
+                        setTrainState('opponent_moving');
+                        triggerOpponentMoveRef.current(nextIdx);
+                    } else {
+                        setTrainState('waiting_user');
+                    }
+                }
+            };
+
+
+            const goToMove = (index) => {
+                if(mode !== 'learn') return;
+                
+                chessEngine.current.reset();
+                for (let i = 0; i < index; i++) {
+                    const m = parsedMoves[i];
+                    chessEngine.current.move({from: m.from, to: m.to, promotion: 'q'});
+                }
+                
+                setCurrentMoveIdx(index);
+                setBoardFen(index === 0 ? 'start' : chessEngine.current.fen());
+                
+                if (index > 0) {
+                    const lastMove = parsedMoves[index - 1];
+                    setHighlightSquares({from: lastMove.from, to: lastMove.to});
+                    playMoveSound();
+                } else {
+                    setHighlightSquares(null);
+                }
+            };
+            goToMoveRef.current = goToMove;
+
+            const learnNext = () => { if (currentMoveIdx < parsedMoves.length) goToMove(currentMoveIdx + 1); };
+            const learnPrev = () => { if (currentMoveIdx > 0) goToMove(currentMoveIdx - 1); };
+            const learnStart = () => { goToMove(0); };
+
+            // 결과 저장 로직 트리거
+            useEffect(() => {
+                if (mode === 'result') {
+                    const isPerfect = stats.firstTryCorrect === stats.totalUserMoves && stats.hints === 0;
+                    const scoreRate = stats.totalUserMoves > 0 ? (stats.firstTryCorrect / stats.totalUserMoves) : 0;
+                    updateProgress(lesson.id, { isPerfect, scoreRate });
+                }
+            }, [mode]);
+
+            // 설명 패널 추출
+            const currentDesc = currentMoveIdx > 0 ? parsedMoves[currentMoveIdx - 1].explanation : null;
+            const isNextUserTurn = currentMoveIdx < parsedMoves.length && !parsedMoves[currentMoveIdx].isOpponent;
+
+            return (
+                <div className="flex flex-col md:flex-row min-h-full w-full p-2 md:p-4 gap-3 md:gap-4 bg-[#312e2b]">
+                    
+                    {/* 상단/좌측: 체스판 영역 */}
+                    <div className="w-full md:w-3/5 max-w-[680px] flex flex-col mx-auto flex-shrink-0">
+                        {/* 상단 툴바 (뒤로가기 등) */}
+                        <div className="flex justify-between items-center mb-2">
+                            <button onClick={onExit} className="text-[#8c8a88] hover:text-white flex items-center gap-2">
+                                <i className="fa-solid fa-arrow-left"></i> 목록으로
+                            </button>
+                            <div className="flex items-center gap-2"><button aria-label="보드 뒤집기" title="보드 뒤집기" onClick={()=>setIsFlipped(v=>!v)} className="btn-dark px-3 py-1 rounded"><i className="fa-solid fa-rotate"></i></button><span className="text-white font-bold text-sm bg-[#262421] px-3 py-1 rounded border border-[#403d39]">{lesson.title}</span></div>
+                        </div>
+
+                        {/* 플레이어 라벨 (상단: 상대방) */}
+                        <div className="flex items-center gap-3 mb-2 px-2 text-sm font-semibold text-[#8c8a88]">
+                            <div className="w-8 h-8 bg-[#1a1918] rounded flex items-center justify-center border border-[#403d39]">
+                                <i className={`fa-solid fa-robot ${lesson.color==='w' ? 'text-black' : 'text-white'}`}></i>
+                            </div>
+                            <span>상대방 ({lesson.color==='w' ? '흑' : '백'})</span>
+                            {mode==='train' && trainState==='opponent_moving' && <span className="text-xs bg-yellow-500 text-black px-2 py-0.5 rounded animate-pulse">생각 중...</span>}
+                        </div>
+                        {mode === 'learn' && <section className="mb-2 rounded-xl border border-[#4d6250] bg-[#1a2529] px-3 py-2.5 shadow-lg" aria-live="polite"><div className="flex items-center gap-2"><i className="fa-solid fa-lightbulb text-[#a3d160]"></i><p className="text-xs md:text-sm text-white leading-relaxed">{currentMoveIdx === 0 ? '첫 수를 보면서 이 오프닝의 핵심을 하나씩 익혀볼까요?' : (currentDesc ? `${currentDesc.short} — ${currentDesc.purpose}` : '상대방의 자연스러운 응수입니다.')}</p></div></section>}
+                        {mode === 'train' && <section className={`mb-2 rounded-xl border px-3 py-2.5 ${feedbackMsg.includes('정답') ? 'border-green-800 bg-green-900/20 text-green-300' : (feedbackMsg.includes('다른 수') || feedbackMsg.includes('불법') ? 'border-red-800 bg-red-900/20 text-red-200' : 'border-[#403d39] bg-[#1a1918] text-white')}`} aria-live="polite"><p className="text-sm font-bold">{feedbackMsg || '기물을 클릭한 뒤, 표시된 목적지 칸을 클릭하세요.'}</p></section>}
+
+                        {/* 실제 체스판 렌더링 컨테이너 */}
+                        <div id="board-container" aria-label="체스판: 기물을 선택한 뒤 표시된 칸을 선택해 이동" className="relative w-full aspect-square shadow-2xl rounded-sm overflow-hidden border-4 border-[#262421]">
+                            <div ref={boardRef} style={{width: '100%', height: '100%'}}></div>
+                            {mode === 'result' && (
+                                <section className="absolute inset-4 z-10 flex items-center justify-center bg-[#10191c]/75 backdrop-blur-sm">
+                                    <div className="w-full max-w-sm rounded-2xl border border-[#59725b] bg-[#1a2529] p-5 text-center shadow-2xl animate-pop">
+                                        <i className="fa-solid fa-trophy text-4xl text-yellow-500 mb-3"></i><h2 className="text-xl font-bold text-white">훈련 완료!</h2>
+                                        <p className="text-sm text-[#d8e1df] mt-2">첫 시도 정답률 {Math.round((stats.firstTryCorrect/Math.max(1,stats.totalUserMoves))*100)}% · 힌트 {stats.hints}회</p>
+                                        <div className="grid grid-cols-2 gap-2 mt-5"><button onClick={() => setMode('train')} className="btn-dark py-2 rounded font-bold">다시 훈련</button><button onClick={onExit} className="btn-green py-2 rounded font-bold">목록으로</button></div>
+                                    </div>
+                                </section>
+                            )}
+                        </div>
+
+                        {/* 플레이어 라벨 (하단: 사용자) */}
+                        <div className="flex items-center gap-3 mt-2 px-2 text-sm font-semibold text-white">
+                            <div className={`w-8 h-8 rounded flex items-center justify-center border border-[#403d39] ${lesson.color==='w' ? 'bg-gray-100' : 'bg-gray-800'}`}>
+                                <i className={`fa-solid fa-user ${lesson.color==='w' ? 'text-gray-800' : 'text-gray-100'}`}></i>
+                            </div>
+                            <span>당신 ({lesson.color==='w' ? '백' : '흑'})</span>
+                            {mode==='train' && trainState==='waiting_user' && <span className="text-xs bg-[#81b64c] text-white px-2 py-0.5 rounded animate-pop">내 차례</span>}
+                        </div>
+                        {mode === 'learn' && <div className="mt-3 flex gap-2"><button onClick={learnStart} disabled={currentMoveIdx===0} className="btn-dark h-11 px-3 rounded text-sm"><i className="fa-solid fa-backward-fast"></i></button><button onClick={learnPrev} disabled={currentMoveIdx===0} className="btn-dark h-11 px-3 rounded text-sm"><i className="fa-solid fa-backward-step"></i></button>{currentMoveIdx < parsedMoves.length ? <button onClick={learnNext} className="btn-green flex-1 h-11 rounded font-bold">{currentMoveIdx === 0 ? '첫 수 보기' : '다음 수'} <i className="fa-solid fa-arrow-right ml-2"></i></button> : <button onClick={() => setMode('train')} className="btn-green flex-1 h-11 rounded font-bold"><i className="fa-solid fa-check mr-2"></i>학습 완료 · 훈련 시작</button>}</div>}
+                        {mode === 'train' && <div className="mt-3 grid grid-cols-2 gap-2"><button onClick={()=>useHint(hintLevel+1)} disabled={trainState!=='waiting_user' || hintLevel>=3} className="btn-dark h-11 rounded text-sm font-bold">힌트 보기</button><button onClick={skipToAnswer} disabled={trainState!=='waiting_user'} className="bg-red-900/50 hover:bg-red-800 text-red-200 h-11 rounded text-sm font-bold">정답 보고 넘기기</button></div>}
+                    </div>
+
+                    {/* 하단/우측: 정보 및 컨트롤 패널 */}
+                    <div className="flex-1 min-w-0 bg-[#262421] rounded-lg shadow-xl flex flex-col h-auto min-h-0 border border-[#403d39] self-start md:max-h-[calc(100vh-2rem)] md:overflow-y-auto">
+                        
+                        {/* 탭 헤더 */}
+                        <div className="flex border-b border-[#403d39]">
+                            <button className={`flex-1 py-3 text-sm font-bold transition-colors ${mode==='learn' ? 'text-white border-b-2 border-[#81b64c]' : 'text-[#8c8a88]'}`} onClick={() => mode!=='result' && setMode('learn')}>
+                                <i className="fa-solid fa-book-open mr-2"></i> 학습 모드
+                            </button>
+                            <button className={`flex-1 py-3 text-sm font-bold transition-colors ${mode==='train' ? 'text-white border-b-2 border-yellow-500' : 'text-[#8c8a88]'}`} onClick={() => mode!=='result' && setMode('train')}>
+                                <i className="fa-solid fa-dumbbell mr-2"></i> 훈련 모드
+                            </button>
+                        </div>
+
+                        {/* --- 학습 모드 컨텐츠 --- */}
+                        {mode === 'learn' && (
+                            <div className="p-4">
+                                <p className="text-sm text-[#c3c2c1]">수의 이유와 계속하기 버튼은 체스판 위 카드에서 진행합니다.</p>
+                                <p className="text-xs text-[#8c8a88] mt-2">필요하면 이전 수만 되돌려 다시 확인할 수 있습니다.</p>
+                                <div className="flex gap-2 mt-4"><button onClick={learnStart} disabled={currentMoveIdx===0} className="btn-dark px-3 h-10 rounded"><i className="fa-solid fa-backward-fast"></i> 처음</button><button onClick={learnPrev} disabled={currentMoveIdx===0} className="btn-dark px-3 h-10 rounded"><i className="fa-solid fa-backward-step"></i> 이전 수</button></div>
+                            </div>
+                        )}
+
+                        {/* --- 훈련 모드 컨텐츠 --- */}
+                        {mode === 'train' && (
+                            <div className="p-4">
+                                <p className="text-sm text-[#c3c2c1]">훈련 조작과 피드백은 체스판 바로 위·아래에서 진행합니다.</p>
+                                {trainState === 'waiting_user' && hintLevel > 0 && currentMoveIdx < parsedMoves.length && (
+                                    <div className="bg-[#1a1918] p-3 rounded border border-[#403d39] mt-3 text-sm animate-pop">
+                                        <p className="text-[#8c8a88] font-bold mb-2">💡 힌트</p>
+                                        {hintLevel >= 1 && parsedMoves[currentMoveIdx].explanation && <p className="mb-1 text-white">목적: {parsedMoves[currentMoveIdx].explanation.purpose}</p>}
+                                        {hintLevel >= 2 && <p className="mb-1 text-blue-300">어떤 칸으로 갈지 집중해보세요.</p>}
+                                        {hintLevel >= 3 && <p className="mb-1 text-yellow-400 font-mono">기보: {parsedMoves[currentMoveIdx].san}</p>}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* --- 결과 화면 --- */}
+                        {mode === 'result' && (
+                            <div className="p-5 text-center text-sm text-[#8c8a88]">훈련 결과와 다음 행동은 체스판 위 완료 팝업에서 확인하세요.</div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // React 앱 렌더링
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
